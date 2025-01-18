@@ -12,7 +12,7 @@ app.use(express.static("public"));
 app.use("/api/v1/user", usersRoutes);
 
 app.get("/", (req, res) => {
-  res.send("Random server running");
+  res.send("Random server running on port 5000 using EC2 instance + CI/CD");
 });
 
 app.all("*", (req, res) => {

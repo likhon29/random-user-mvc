@@ -1,0 +1,72 @@
+name: Deploy Node.js Express Server
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Set up Node.js
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+
+      # Step 3: Install dependencies
+      - name: Install dependencies
+        run: npm install
+
+      # Step 4: Configure SSH
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      # Step 5: Deploy files to the EC2 instance
+      - name: Deploy the server
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          # Sync project files to the server
+          rsync -avz \
+            --exclude 'node_modules' \
+            --exclude '.git' \
+            --exclude '.github' \
+            ./ $EC2_USER@$EC2_HOST:~/express-server
+
+          # Run deployment script on EC2
+          ssh $EC2_USER@$EC2_HOST << 'EOF'
+            # Update and install Node.js
+            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+            sudo apt-get install -y nodejs
+
+            # Install PM2 globally
+            sudo npm install -g pm2
+
+            # Navigate to project directory
+            cd ~/express-server
+
+            # Install production dependencies
+            npm install --production
+
+            # Start the server using PM2
+            pm2 delete express-server || true
+            pm2 start npm --name express-server -- start
+
+            # Save PM2 process list and restart on reboot
+            pm2 save
+            pm2 startup | tail -n 1 | bash
+          EOF
